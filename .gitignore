@@ -1,0 +1,21 @@
+# KiCad local and generated files
+*.kicad_prl
+*.lck
+~*.lck
+*-backups/
+.history/
+fp-info-cache
+_autosave-*
+*.bak
+DRC.rpt
+# CPLD build outputs
+cpld/*.edif
+cpld/*.jed
+cpld/*.fit
+cpld/*.pin
+cpld/*.log
+cpld/*.io
+cpld/*.tt3
+cpld/*.svf
+cpld/tb_mini816
+cpld/*.vcd
