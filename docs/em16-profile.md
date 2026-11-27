@@ -1,6 +1,6 @@
 # Mini816: hardware specification for an em16 profile
 
-This describes the Mini816 (rev A schematic, `~/Developer/Hardware/Mini816`,
+This describes the Mini816 (rev B schematic, branch `v2`, `~/Developer/Hardware/Mini816`,
 with the keyboard in `~/Developer/Hardware/Mini816-Keyboard`)
 as an emulator needs to see it. It is written for an agent adding a Mini816
 profile to em16. Where the hardware is not yet fixed (the CPLD Verilog, the
@@ -14,25 +14,28 @@ notes on each sheet.
 
 | Item | Part | Emulation notes |
 |---|---|---|
-| CPU | W65C816S | 7.3728 MHz PHI2 |
+| CPU | W65C816S (PLCC-44) | 7.3728 MHz PHI2 |
 | RAM | AS6C4008, 512K | banks $00-$07 |
 | ROM | SST39SF040, 512K flash | banks $08-$0F, plus 12K boot window in bank 0; in-system programmable |
 | Glue | ATF1504AS CPLD | bank latch, decode, clock, I/O cycle stretching |
 | VIA | W65C22N at $00:C000 | 64-key keyboard and joystick (scanned matrix), SD card (bit-banged SPI), sound, VDP interrupt |
 | SCC | Z85C30 at $00:C010 | two async serial ports; channel A is the console |
 | Video | TMS9118 at $00:C020 | 16K VRAM, NTSC composite, 256x192 |
-| Expansion | TIM-Bus | Apple II slot style selects; no cards by default |
+| Floppy | Intel 82077AA at $00:C030 | one or two 3.5" drives (720K / 1.44M), no DMA |
 
-Interrupts: VIA, SCC and TIM-Bus cards share the CPU's IRQB (open drain,
-wired OR). The VDP interrupt does not go to IRQB directly; it goes to VIA
-CB1. NMIB comes from a push button and the TIM-Bus.
+Interrupts: the VIA and SCC share the CPU's IRQB (open drain, wired OR).
+The VDP and floppy interrupts do not go to IRQB directly; they go to VIA
+CB1 and CB2. NMIB comes from a push button.
+
+Rev B changes from rev A: TIM-Bus removed; 82077AA floppy controller added
+at $C030; CPU and flash in PLCC packages (no software difference).
 
 ## 2. Clocks and timing
 
 * Master clock 14.7456 MHz into the CPLD.
 * CPU PHI2 = 7.3728 MHz (one CPU cycle = 135.6 ns) for memory accesses.
 * **I/O cycle stretching:** every access to $00:C000-$00:CFFF (VIA, SCC,
-  VDP, TIM-Bus) has PHI2 high for 15 master clocks instead of 1, so the
+  VDP, FDC) has PHI2 high for 15 master clocks instead of 1, so the
   access takes 16 master clocks = 1.085 us. That's the time of 8 normal CPU
   cycles: model it as `io_cycle_clks` = 8 (fixed by `IO_HIGH` in
   `cpld/mini816.v`).
@@ -87,11 +90,10 @@ $10, $20, ... $F0.
 | $C000-$C00F | VIA | W65C22 register = A3-A0 |
 | $C010-$C01F | SCC | A1 = A/~B, A0 = D/~C; mirrored every 4 bytes |
 | $C020-$C02F | VDP | A0 = MODE; mirrored every 2 bytes |
-| $C030-$C03F | spare (IO_SP3) | nothing fitted: open bus |
+| $C030-$C03F | FDC | 82077AA register = A2-A0; mirrored every 8 bytes |
 | $C040-$C07F | none | open bus |
-| $C080-$C0FF | TIM-Bus /DEVSEL | slot n at $C080 + n*16 (n = 0-7) |
-| $C100-$C7FF | TIM-Bus /IOSEL | slot n at $Cn00-$CnFF (n = 1-7) |
-| $C800-$CFFF | TIM-Bus /IOSTRB | shared expansion ROM space |
+| $C080-$C0FF | none | open bus (rev A: TIM-Bus) |
+| $C100-$CFFF | none | open bus (rev A: TIM-Bus), still a stretched I/O cycle |
 
 SCC register addresses:
 
@@ -171,7 +173,7 @@ Standard 6522 register set, timers and shift register. IRQ goes to IRQB.
 | CA1 | SD card detect, pulled up. Polarity depends on the module: make it a profile option, default low = card present. |
 | CA2 | Keyboard column select bit 3, pulled up. Software drives it as a manual output (PCR CA2 control = 110 low / 111 high). |
 | CB1 | VDP /INT. The VDP pulls it low while its interrupt flag F is set and interrupts are enabled (register 1 bit 5); the VIA sees a falling edge. Pulled up. |
-| CB2 | spare, pulled up, not connected. Can be used as a second sound voice via the shift register in free-run mode. |
+| CB2 | Floppy controller INT (active high), pulled up. Configure CB2 as an input, positive edge (PCR CB2 control = 010). Reads high while the 82077AA's INT is tristated (DOR bit 3 clear). |
 
 ### Keyboard matrix
 
@@ -295,21 +297,35 @@ output, mixed in, as a second voice.
   mode-dependent minimum.
 * The VDP is reset by RESB.
 
-## 10. TIM-Bus expansion
+## 10. Floppy disk controller (82077AA) at $C030
 
-* Apple II slot pinout. Only A0-A7 and D0-D7 are carried, plus /DEVSEL,
-  /IOSEL, /IOSTRB, R/W, PHI2, RESB, IRQB, NMIB and RDY.
-* No cards fitted by default: those address ranges read as open bus.
-* Leave a hook for cards to be added later, with slot n at $C080 + n*16,
-  $Cn00 and the shared $C800 space.
+* Intel 82077AA in PC/AT mode (IDENT high). Registers by A2-A0, PC/AT
+  layout at offsets 0-7 (base + 2 = DOR, + 4 = MSR / DSR, + 5 = FIFO,
+  + 7 = DIR / CCR; offsets 0 and 1 are the SRA/SRB status registers).
+* No DMA: /DACK is tied high and TC low. Software uses non-DMA mode
+  (SPECIFY with ND = 1) and transfers data through the FIFO by polling the
+  main status register (RQM, DIO, NDM) or on interrupts.
+* INT goes to VIA CB2, not to IRQB. As on a PC, INT (and DRQ) are
+  tristated until DOR bit 3 is set; CB2 then reads INT directly.
+* RESET is driven from the CPLD as NOT RESB, so the FDC resets with the
+  CPU; software can also reset it through DOR bit 2.
+* 24 MHz crystal: data rates 500 kbit/s (1.44M) and 250 kbit/s (720K) via
+  the CCR/DSR rate bits.
+* Drive cable: PC 34-pin header, drive selects DS0/DS1 and motors
+  ME0/ME1. With a twisted PC cable the drive after the twist is drive 0.
+* Emulation: implement the 82077AA command set needed for MFM disks
+  (SPECIFY, RECALIBRATE, SEEK, SENSE INTERRUPT STATUS, SENSE DRIVE STATUS,
+  READ DATA, WRITE DATA, READ ID, FORMAT TRACK, VERSION, CONFIGURE), with
+  disk images as raw sector files (720K: 80 tracks, 2 sides, 9 sectors of
+  512 bytes; 1.44M: 18 sectors). DSKCHG is pin 34 (DIR bit 7).
 
 ## 11. Reset and interrupts
 
 | Signal | Sources | Notes |
 |---|---|---|
-| RESB | Power-on, reset button | Resets CPU, CPLD, VIA, VDP and TIM-Bus cards. The SCC is **not** reset. |
-| IRQB | VIA IRQ, SCC /INT, TIM-Bus /IRQ | Level, wired OR (low if any source is asserting) |
-| NMIB | NMI button, TIM-Bus /NMI | Falling edge. Expose the button as an emulator command. |
+| RESB | Power-on, reset button | Resets CPU, VIA, VDP and the FDC (through the CPLD). The SCC is **not** reset. |
+| IRQB | VIA IRQ, SCC /INT | Level, wired OR (low if any source is asserting) |
+| NMIB | NMI button | Falling edge. Expose the button as an emulator command. |
 | ABORTB | Pulled up | Unused |
 | RDY | Pulled up | WAI pulls it low until an interrupt |
 | BE | Pulled up | Always enabled |
@@ -331,6 +347,7 @@ output, mixed in, as a second voice.
 | `flash_write_enable` | true | |
 | `open_bus_value` | $FF | |
 | `sd_image` | none | path |
+| `fd0_image`, `fd1_image` | none | path to a 720K or 1.44M raw image |
 | `sd_cd_active_low` | true | |
 | `scc_a` | console | console / pty / socket / none |
 | `scc_b` | none | console / pty / socket / none |
@@ -340,4 +357,4 @@ output, mixed in, as a second voice.
 ## 13. Open items (not yet fixed in hardware)
 
 1. SD module card-detect polarity.
-2. Whether CB2 is used as a second sound voice.
+2. (Rev A's open item about CB2 is closed: it is now the floppy interrupt.)

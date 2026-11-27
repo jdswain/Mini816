@@ -11,13 +11,13 @@ module tb;
     reg  [15:0] ADDR = 0;
     reg  [3:0]  CDV = 0;
     wire PHI2, PCLK, A16, A17, A18, nRAMCE, nROMCE, nRD, nWR, nIOC0, nBUFOE,
-         nDEVSEL, nIOSEL, nIOSTRB;
+         FDCRST;
 
     mini816 dut(.CLK14(CLK14), .RESB(RESB), .RW(RW), .VDA(VDA), .VPA(VPA),
                 .A(ADDR[15:7]), .CD(CDV), .PHI2(PHI2), .PCLK(PCLK),
                 .A16(A16), .A17(A17), .A18(A18), .nRAMCE(nRAMCE), .nROMCE(nROMCE),
                 .nRD(nRD), .nWR(nWR), .nIOC0(nIOC0), .nBUFOE(nBUFOE),
-                .nDEVSEL(nDEVSEL), .nIOSEL(nIOSEL), .nIOSTRB(nIOSTRB));
+                .FDCRST(FDCRST));
 
     // 14.7456 MHz: 67.817 ns period
     always #33.9084 CLK14 = ~CLK14;
@@ -51,9 +51,7 @@ module tb;
             check(nWR === rw, "nWR");
             check(nBUFOE === 1'b0, "nBUFOE");
             check(nIOC0 === ~exp_ioc0, "nIOC0");
-            check(nDEVSEL === ~exp_devsel, "nDEVSEL");
-            check(nIOSEL === ~exp_iosel, "nIOSEL");
-            check(nIOSTRB === ~exp_iostrb, "nIOSTRB");
+            check(FDCRST === ~RESB, "FDCRST");
             s_a = {A18, A17, A16}; s_ram = ~nRAMCE; s_rom = ~nROMCE; s_io = ~nIOC0;
             @(negedge PHI2); t_fall = $realtime;
             #1;
@@ -89,9 +87,9 @@ module tb;
         cycle(8'h00, 16'hC000, 1, 0, 1,  1,  0,  0, 3'b000, 1,   0,   0,    0);  // VIA
         cycle(8'h00, 16'hC013, 1, 0, 0,  1,  0,  0, 3'b000, 1,   0,   0,    0);  // SCC write
         cycle(8'h00, 16'hC021, 1, 0, 1,  1,  0,  0, 3'b000, 1,   0,   0,    0);  // VDP status
-        cycle(8'h00, 16'hC0A0, 1, 0, 1,  1,  0,  0, 3'b000, 1,   1,   0,    0);  // DEVSEL slot 2
-        cycle(8'h00, 16'hC300, 1, 0, 1,  1,  0,  0, 3'b000, 0,   0,   1,    0);  // IOSEL slot 3
-        cycle(8'h00, 16'hC800, 1, 0, 1,  1,  0,  0, 3'b000, 0,   0,   0,    1);  // IOSTRB
+        cycle(8'h00, 16'hC0A0, 1, 0, 1,  1,  0,  0, 3'b000, 1,   1,   0,    0);  // rev A DEVSEL area: still an I/O cycle
+        cycle(8'h00, 16'hC300, 1, 0, 1,  1,  0,  0, 3'b000, 0,   0,   1,    0);  // rev A IOSEL area
+        cycle(8'h00, 16'hC800, 1, 0, 1,  1,  0,  0, 3'b000, 0,   0,   0,    1);  // rev A IOSTRB area
         cycle(8'h00, 16'hC000, 0, 0, 1,  0,  0,  0, 3'b000, 0,   0,   0,    0);  // internal cycle: no select, no stretch
         cycle(8'h00, 16'h0300, 1, 1, 1,  0,  1,  0, 3'b000, 0,   0,   0,    0);  // back to RAM at full speed
 

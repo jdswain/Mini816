@@ -16,6 +16,9 @@ schematic, so keep the two in step.
 * CLK14 = 14.7456 MHz in. PCLK = 7.3728 MHz out to the SCC, never stretched.
 * PHI2 is low for one CLK14 period and high for one. That's a 135.6 ns cycle,
   7.3728 MHz.
+* FDCRST (pin 18) = NOT RESB: the 82077AA floppy controller's active-high
+  reset (rev B; this pin was the TIM-Bus /IOSEL in rev A, and pins 19 and 20
+  are now spare).
 * For a valid (VDA or VPA) access to $00:C000-$00:CFFF, PHI2 stays high for
   15 periods instead. That's a 1.085 us cycle: `IO_HIGH`, or io_cycle_clks = 8
   in the em16 profile. The cycle type is decided at the end of PHI2 low, so

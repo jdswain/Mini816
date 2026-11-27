@@ -18,21 +18,21 @@
 //  * Strobes:  nRD / nWR are PHI2-qualified, shared by RAM, flash and the SCC.
 //              nBUFOE enables the 74AHC245 data buffer while PHI2 is high.
 //  * I/O:      nIOC0   $C000-$C0FF (74HC138 splits $C000-$C07F by A4-A6:
-//                      VIA $C000, SCC $C010, VDP $C020, spare $C030)
-//              nDEVSEL $C080-$C0FF, nIOSEL $C100-$C7FF, nIOSTRB $C800-$CFFF
-//              (TIM-Bus, Apple II style, PHI2-qualified)
+//                      VIA $C000, SCC $C010, VDP $C020, floppy $C030)
+//  * FDCRST:   reset for the 82077AA floppy controller (active high) = NOT RESB.
+//              Rev B: pins 19 and 20 (TIM-Bus nDEVSEL, nIOSTRB in rev A) are spare.
 //  * Selects are only asserted on valid cycles (VDA or VPA high).
 
 module mini816 (
     input  CLK14,           // 14.7456 MHz oscillator
-    input  RESB,            // system reset (unused by the logic, clocks keep running)
+    input  RESB,            // system reset (clocks keep running through it)
     input  RW,              // CPU R/W (1 = read)
     input  VDA,
     input  VPA,
     input  [15:7] A,        // CPU address A7-A15
     input  [3:0] CD,        // CPU data D0-D3 (bank byte while PHI2 is low)
 
-    output reg PHI2,        // CPU / VIA / TIM-Bus clock
+    output reg PHI2,        // CPU / VIA clock
     output reg PCLK,        // SCC clock
     output A16,
     output A17,
@@ -43,9 +43,7 @@ module mini816 (
     output nWR,
     output nIOC0,
     output nBUFOE,
-    output nDEVSEL,
-    output nIOSEL,
-    output nIOSTRB
+    output FDCRST           // 82077AA RESET, active high
 );
 
     // PHI2 high time for an I/O cycle, in CLK14 periods (low time is always 1).
@@ -78,9 +76,7 @@ module mini816 (
 
     wire page_c0   = io & (A[11:8] == 4'h0);
     assign nIOC0   = ~(valid & page_c0);
-    assign nDEVSEL = ~(valid & PHI2 & page_c0 & A[7]);
-    assign nIOSEL  = ~(valid & PHI2 & io & ~A[11] & (A[10:8] != 3'h0));
-    assign nIOSTRB = ~(valid & PHI2 & io & A[11]);
+    assign FDCRST  = ~RESB;
 
     // ---------------------------------------------------------------- clocks
     reg [3:0] cnt;
@@ -119,9 +115,7 @@ endmodule
 //PIN: PCLK    : 14
 //PIN: CD_2    : 16
 //PIN: CD_3    : 17
-//PIN: nIOSEL  : 18
-//PIN: nDEVSEL : 19
-//PIN: nIOSTRB : 20
+//PIN: FDCRST  : 18
 //PIN: A17     : 21
 //PIN: PHI2    : 24
 //PIN: A_11    : 25
